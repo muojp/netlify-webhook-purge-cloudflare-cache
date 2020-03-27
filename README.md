@@ -1,4 +1,4 @@
-# Netlify webhook ==> purge-cache API on Cloudflare 
+# Netlify webhook ==> purge-cache on Cloudflare 
 
 ## About
 
