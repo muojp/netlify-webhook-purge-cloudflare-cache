@@ -1,67 +1,43 @@
+require 'digest'
+require 'json'
+require 'jwt'
+require 'net/http'
 require 'sinatra'
-require 'aws-record'
 
-before do
-  if (! request.body.read.empty? and request.body.size > 0)
-    request.body.rewind
-    @params = Sinatra::IndifferentHash.new
-    @params.merge!(JSON.parse(request.body.read))
-  end
+def signed(request, body)
+  puts request.env.to_json
+  puts body
+  signature = request.env["HTTP_X_WEBHOOK_SIGNATURE"]
+  return unless signature
+
+  options = {iss: "netlify", verify_iss: true, algorithm: "HS256"}
+  decoded = JWT.decode(signature, ENV['NETLIFY_PRESHARED_KEY'], true, options)
+
+  ## decoded :
+  ## [
+  ##   { sha256: "..." }, # this is the data in the token
+  ##   { alg: "..." } # this is the header in the token
+  ## ]
+  decoded.first['sha256'] == Digest::SHA256.hexdigest(body)
+rescue JWT::DecodeError
+  puts '### Signature verification failed.'
+  false
 end
 
-##################################
-# For the index page
-##################################
-get '/' do
-  erb :index
-end
+post "/netlify-hook" do
+  request.body.rewind
+  body = request.body.read
+  halt 403 unless signed(request, body)
 
-##################################
-# Return a Hello world JSON
-##################################
-get '/hello-world' do
-  content_type :json
-  { :Output => 'Hello World!' }.to_json
-end
+  uri = URI.parse("https://api.cloudflare.com/client/v4/zones/#{ENV['ZONE_ID']}/purge_cache")
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.use_ssl = uri.scheme === "https"
 
-post '/hello-world' do
-    content_type :json
-    { :Output => 'Hello World!' }.to_json
-end
+  params = { purge_everything: true }
+  headers = { "Content-Type" => "application/json", "Authorization" => "Bearer #{ENV['CLOUDFLARE_API_TOKEN']}" }
+  response = http.post(uri.path, params.to_json, headers)
 
-##################################
-# Web App with a DynamodDB table
-##################################
-
-# Class for DynamoDB table
-# This could also be another file you depend on locally.
-class FeedbackServerlessSinatraTable
-  include Aws::Record
-  string_attr :id, hash_key: true
-  string_attr :name
-  string_attr :feedback
-  epoch_time_attr :ts
-end
-
-get '/feedback' do
-  erb :feedback
-end
-
-get '/api/feedback' do
-  content_type :json
-  items = FeedbackServerlessSinatraTable.scan()
-  items
-    .map { |r| { :ts => r.ts, :name => r.name, :feedback => r.feedback } }
-    .sort { |a, b| a[:ts] <=> b[:ts] }
-    .to_json
-end
-
-post '/api/feedback' do
-  content_type :json
-  item = FeedbackServerlessSinatraTable.new(id: SecureRandom.uuid, ts: Time.now)
-  item.name = params[:name]
-  item.feedback = params[:feedback]
-  item.save! # raise an exception if save fails
-
-  item.to_h.to_json
+  ret = { :Output => response.code }.to_json
+  puts ret
+  ret
 end

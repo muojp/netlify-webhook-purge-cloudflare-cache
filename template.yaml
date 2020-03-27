@@ -7,10 +7,7 @@ Resources:
     Properties:
       FunctionName: SinatraApp
       Handler: lambda.handler
-      Runtime: ruby2.5
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref FeedbackTable
+      Runtime: ruby2.7
       CodeUri: "./"
       MemorySize: 512
       Timeout: 30
@@ -58,16 +55,6 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref SinatraFunction
       Principal: apigateway.amazonaws.com
-  FeedbackTable:
-    Type: AWS::Serverless::SimpleTable
-    Properties:
-      TableName: FeedbackServerlessSinatraTable
-      PrimaryKey: 
-        Name: id
-        Type: String
-      ProvisionedThroughput: 
-        ReadCapacityUnits: 5
-        WriteCapacityUnits: 5
 Outputs:
   SinatraAppUrl:
     Description: App endpoint URL
